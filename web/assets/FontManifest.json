@@ -1,0 +1,34 @@
+[
+    {
+        "family": "Raleway",
+        "fonts": [
+            {
+                "asset": "fonts/Raleway-Regular.ttf"
+            }
+        ]
+    },
+    {
+        "family": "MaterialIcons",
+        "fonts": [
+            {
+                "asset": "fonts/MaterialIcons-Regular.ttf"
+            }
+        ]
+    },
+    {
+        "family": "RobotoMono",
+        "fonts": [
+            {
+                "asset": "fonts/RobotoMono-Regular.ttf"
+            }
+        ]
+    },
+    {
+        "family": "TitilliumWeb",
+        "fonts": [
+            {
+                "asset": "fonts/TitilliumWeb-Regular.ttf"
+            }
+        ]
+    }
+]

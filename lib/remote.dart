@@ -1,0 +1,167 @@
+import 'dart:async';
+import 'dart:convert' as convert;
+
+import 'package:http/http.dart' as http;
+import 'package:json_annotation/json_annotation.dart';
+
+import 'bloc.dart';
+
+part 'remote.g.dart';
+
+@JsonSerializable()
+class Suggestions {
+  final List<String> suggestions;
+
+  Suggestions(this.suggestions);
+
+  factory Suggestions.fromJson(Map<String, dynamic> json) =>
+      _$SuggestionsFromJson(json);
+}
+
+@JsonSerializable()
+class LyricsResponse {
+  @JsonKey(name: "Lyrics")
+  final LyricsObject lyrics;
+  @JsonKey(name: "Alternatives")
+  final List<Alternative> alternatives;
+  @JsonKey(ignore: true)
+  bool isChords = false;
+
+  LyricsResponse(this.lyrics, this.alternatives);
+  factory LyricsResponse.fromJson(Map<String, dynamic> json) =>
+      _$LyricsResponseFromJson(json);
+
+  factory LyricsResponse.empty() => LyricsResponse(LyricsObject("", ""), []);
+}
+
+@JsonSerializable()
+class LyricsObject {
+  @JsonKey(name: "Lyrics")
+  final String lyrics;
+  @JsonKey(name: "Title")
+  final String title;
+
+  LyricsObject(this.lyrics, this.title);
+  factory LyricsObject.fromJson(Map<String, dynamic> json) =>
+      _$LyricsObjectFromJson(json);
+}
+
+@JsonSerializable()
+class Alternative {
+  @JsonKey(name: "Url")
+  final String url;
+  @JsonKey(name: "Title")
+  final String title;
+
+  Alternative(this.url, this.title);
+  factory Alternative.fromJson(Map<String, dynamic> json) =>
+      _$AlternativeFromJson(json);
+}
+
+final baseUrl = "https://ql-p37cqwbefa-uc.a.run.app";
+
+final lyricsUrl = "$baseUrl/lyrics";
+final suggestUrl = "$baseUrl/suggest";
+
+class RemoteBloc implements BlocBase {
+  final _suggestController = StreamController<Suggestions>();
+  final _lyricsOrChordsController = StreamController<bool>();
+  final _lyricsOrChordsOutController = StreamController<LyricsType>();
+  final _lyricsController = StreamController<LyricsResponse>();
+  final _suggestTextController = StreamController<String>();
+  final _lyricsTextController = StreamController<String>();
+  final _suggestionTapController = StreamController<String>();
+  final _loading = StreamController<bool>();
+  final _remote = _Remote();
+  String query = "";
+  LyricsType lyricsType = LyricsType.LYRICS;
+
+  Sink<String> get suggestIn => _suggestTextController.sink;
+  Sink<String> get lyricsIn => _lyricsTextController.sink;
+  Sink<String> get suggestionTapIn => _suggestionTapController.sink;
+  Sink<bool> get lyricsOrChordsIn => _lyricsOrChordsController.sink;
+  Stream<LyricsType> get lyricsOrChordsOut => _lyricsOrChordsOutController.stream;
+  Stream<Suggestions> get suggestionsOut => _suggestController.stream;
+  Stream<LyricsResponse> get lyricsOut => _lyricsController.stream;
+  Stream<bool> get loading => _loading.stream;
+
+  RemoteBloc() {
+    _suggestTextController.stream.listen((lyrics) async {
+      query = lyrics;
+      updateSuggestions();
+    });
+    _lyricsTextController.stream.listen((lyrics) async {
+      query = lyrics;
+      updateLyrics();
+    });
+    _lyricsOrChordsController.stream.listen((ignore) async {
+      this.lyricsType = this.lyricsType == LyricsType.LYRICS ? LyricsType.CHORDS : LyricsType.LYRICS;
+      _lyricsOrChordsOutController.add(this.lyricsType);
+      updateLyrics();
+    });
+    _suggestionTapController.stream.listen((suggestion) async {
+      query = suggestion;
+      updateLyrics();
+    });
+    
+  }
+
+  @override
+  void dispose() {
+    _suggestController.close();
+    _lyricsController.close();
+    _suggestTextController.close();
+    _lyricsTextController.close();
+    _lyricsOrChordsController.close();
+    _suggestionTapController.close();
+  }
+
+  void updateSuggestions() async {
+    if (query.length == 0) {
+      return;
+    }
+    final response = await _remote.suggest(query, lyricsType: lyricsType);
+    _suggestController.sink.add(response);
+  }
+  void updateLyrics() async {
+    if (query.length == 0) {
+      return;
+    }
+    _loading.add(true);
+    final response = await _remote.lyrics(query, lyricsType: lyricsType);
+    _lyricsController.sink.add(response);
+    _loading.add(false);
+  }
+}
+
+enum LyricsType {
+  LYRICS,
+  CHORDS,
+}
+
+class _Remote {
+  Future<LyricsResponse> lyrics(String lyrics,
+      {LyricsType lyricsType = LyricsType.LYRICS}) async {
+    var response = await get(
+        "$lyricsUrl?lyrics=$lyrics&lyricsOrChords=${lyricsTypeToString(lyricsType)}");
+    final result = LyricsResponse.fromJson(convert.jsonDecode(response));
+    result.isChords = lyricsType == LyricsType.CHORDS;
+    return result;
+  }
+
+  Future<String> get(String url) async {
+    final response = await http.get(url);
+    return response.body;
+  }
+
+  String lyricsTypeToString(LyricsType lyricsType) {
+    return lyricsType == LyricsType.LYRICS ? "lyrics" : "chords";
+  }
+
+  Future<Suggestions> suggest(String lyrics,
+      {LyricsType lyricsType = LyricsType.LYRICS}) async {
+    var response = await get(
+        "$suggestUrl?lyrics=$lyrics&lyricsOrChords=${lyricsTypeToString(lyricsType)}");
+    return Suggestions.fromJson(convert.jsonDecode(response));
+  }
+}
